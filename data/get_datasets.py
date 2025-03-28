@@ -46,6 +46,8 @@ def get_datasets(dataset_name, train_transform, test_transform, args):
                             prop_train_labels=args.prop_train_labels,
                             split_train_val=False)
     # Set target transforms:
+    # Target transform is a class mapper. It transforms the class label into another index.
+    # Labelled classes are first, and unlabelled classes follow after.
     target_transform_dict = {}
     for i, cls in enumerate(list(args.train_classes) + list(args.unlabeled_classes)):
         target_transform_dict[cls] = i

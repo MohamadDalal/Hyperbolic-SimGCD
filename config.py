@@ -1,12 +1,12 @@
 # -----------------
 # DATASET ROOTS
 # -----------------
-cifar_10_root = '${DATASET_DIR}/cifar10'
-cifar_100_root = '${DATASET_DIR}/cifar100'
-cub_root = '${DATASET_DIR}/cub'
-aircraft_root = '${DATASET_DIR}/fgvc-aircraft-2013b'
-car_root = '${DATASET_DIR}/cars'
-herbarium_dataroot = '${DATASET_DIR}/herbarium_19'
+cifar_10_root = '/ceph/home/student.aau.dk/mdalal20/P10-project/Datasets/CIFAR10/'
+cifar_100_root = '/ceph/home/student.aau.dk/mdalal20/P10-project/Datasets/CIFAR100/'
+cub_root = '/ceph/home/student.aau.dk/mdalal20/P10-project/Datasets/CUB'
+aircraft_root = '/ceph/home/student.aau.dk/mdalal20/P10-project/Datasets/FGVC'
+car_root = '/ceph/home/student.aau.dk/mdalal20/P10-project/Datasets/stanford_cars'
+herbarium_dataroot = '/ceph/home/student.aau.dk/mdalal20/P10-project/Datasets/Herbarium'
 imagenet_root = '${DATASET_DIR}/ImageNet'
 
 # OSR Split dir

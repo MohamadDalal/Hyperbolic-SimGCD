@@ -215,7 +215,7 @@ class DistillLoss(nn.Module):
         # teacher centering and sharpening
         temp = self.teacher_temp_schedule[epoch]
         teacher_out = F.softmax(teacher_output / temp, dim=-1)
-        teacher_out = teacher_out.detach().chunk(2)
+        teacher_out = teacher_out.detach().chunk(2) # Is this falsly hard-coded?
 
         total_loss = 0
         n_loss_terms = 0
