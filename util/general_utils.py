@@ -71,6 +71,12 @@ def init_experiment(args, runner_name=None, exp_id=None):
     args.model_dir = model_root_dir
     args.model_path = os.path.join(args.model_dir, 'model.pt')
 
+    # Instantiate directory to save debug info to
+    debug_root_dir = os.path.join(args.log_dir, 'debug')
+    if not os.path.exists(debug_root_dir):
+        os.mkdir(debug_root_dir)
+    args.debug_dir = debug_root_dir
+
     print(f'Experiment saved to: {args.log_dir}')
 
     hparam_dict = {}

@@ -107,9 +107,10 @@ Unsupervised:
 
 
 # Plan
-- We need to implement an exponential map to move projections to hyperbolic space
-- We need to implement a hyperbolic distance function for contrastive loss
-- We need to implement a hyperbolic prediction layer with hyperbolic softmax and hyperbolic cross entropy for parametric clustering
+- ~~We need to implement an exponential map to move projections to hyperbolic space~~
+- ~~We need to implement a hyperbolic distance function for contrastive loss~~
+- We need to implement a hyperbolic prediction layer with hyperbolic softmax and hyperbolic cross entropy for parametric clustering:
+  - Easiest way would be to do parametric classification in Euclidean space while doing contrastive learning in Hyperbolic space.
+  - The middle way is to just use Poincare for this model, or use Lorentz for contrastive learning, and then Poincare for classification learning. (Did this for now)
+  - The hard way would be to find a Lorentz FC layer. This might be difficult because the ones I found so far are all in Poicare model. (Will do this in another branch)
 
-# Notes
-I do not really understand the shape of the data
