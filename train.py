@@ -84,14 +84,15 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
                         step_log_dict["step/train/hyp_lorentz_stddiv"] = output_log_stats[1][1]
                         step_log_dict["step/train/hyp_lorentz_max"] = output_log_stats[1][2]
                         step_log_dict["step/train/hyp_lorentz_min"] = output_log_stats[1][3]
-                        step_log_dict["step/train/hyp_poincare_mean"] = output_log_stats[2][0]
-                        step_log_dict["step/train/hyp_poincare_stddiv"] = output_log_stats[2][1]
-                        step_log_dict["step/train/hyp_poincare_max"] = output_log_stats[2][2]
-                        step_log_dict["step/train/hyp_poincare_min"] = output_log_stats[2][3]
-                        step_log_dict["step/train/hyp_logits_mean"] = output_log_stats[3][0]
-                        step_log_dict["step/train/hyp_logits_stddiv"] = output_log_stats[3][1]
-                        step_log_dict["step/train/hyp_logits_max"] = output_log_stats[3][2]
-                        step_log_dict["step/train/hyp_logits_min"] = output_log_stats[3][3]
+                        if args.poincare:
+                            step_log_dict["step/train/hyp_poincare_mean"] = output_log_stats[2][0]
+                            step_log_dict["step/train/hyp_poincare_stddiv"] = output_log_stats[2][1]
+                            step_log_dict["step/train/hyp_poincare_max"] = output_log_stats[2][2]
+                            step_log_dict["step/train/hyp_poincare_min"] = output_log_stats[2][3]
+                        step_log_dict["step/train/hyp_logits_mean"] = output_log_stats[3-1*args.poincare][0]
+                        step_log_dict["step/train/hyp_logits_stddiv"] = output_log_stats[3-1*args.poincare][1]
+                        step_log_dict["step/train/hyp_logits_max"] = output_log_stats[3-1*args.poincare][2]
+                        step_log_dict["step/train/hyp_logits_min"] = output_log_stats[3-1*args.poincare][3]
                     else:
                         step_log_dict["step/train/logits_mean"] = output_log_stats[1][0]
                         step_log_dict["step/train/logits_stddiv"] = output_log_stats[1][1]
@@ -327,6 +328,7 @@ if __name__ == "__main__":
     parser.add_argument('--wandb_mode', type=str, default="online")
     parser.add_argument('--epochs_warmup', default=2, type=int)
     parser.add_argument('--hyperbolic', action='store_true', default=False)
+    parser.add_argument('--poincare', action='store_true', default=False)
     parser.add_argument('--curvature', type=float, default=1.0)
     parser.add_argument('--freeze_curvature', type=str, default="false")
     parser.add_argument('--proj_alpha', type=float, default=1.7035**-1)
@@ -425,7 +427,8 @@ if __name__ == "__main__":
                                                                nlayers=args.num_mlp_layers, curv_init=args.curvature,
                                                                learn_curv=not args.freeze_curvature.lower() == "full",
                                                                alpha_init=args.proj_alpha,
-                                                               learn_alpha=not args.freeze_proj_alpha.lower() == "full")
+                                                               learn_alpha=not args.freeze_proj_alpha.lower() == "full",
+                                                               poincare=args.poincare)
     else:
         projector = DINOHead(in_dim=args.feat_dim, out_dim=args.mlp_out_dim, nlayers=args.num_mlp_layers)
     model = nn.Sequential(backbone, projector).to(device)

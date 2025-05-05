@@ -49,6 +49,7 @@ class DINOHead(nn.Module):
         x_norm = torch.norm(x, dim=1)
         return x_proj, logits, [(x_norm.mean(), x_norm.std(), x_norm.max(), x_norm.min())]
 
+# TODO: Investigate that it computes math properly. Taking the direction of the input into account
 class PoincareLinear(nn.Module):
     def __init__(self, in_dim, out_dim, out_split=1, bias=True, gain=1.):
         super(PoincareLinear, self).__init__()
@@ -135,9 +136,118 @@ def poincare_linear(x, weight_g, weight_v, bias, c, out_split : int = 1):
     return P._project(x / (1 + (1 + c * x.pow(2).sum(dim=-1, keepdim=True)).sqrt()), -c, dim=-1)
     #return x / (1 + (1 + c * x.pow(2).sum(dim=-1, keepdim=True)).sqrt())
 
+# I couldn't get this to work, and it is useless since I need to calculate x_time alone because of f(v) and I detach x_time from the result at the end anyways.
+# class LorentzLinear(nn.Module):
+#     """
+#     Hyperbolic linear layer.
+#     """
+
+#     def __init__(self, in_features, out_features, dropout, use_bias = False):
+#         super(LorentzLinear, self).__init__()
+#         self.in_features = in_features
+#         self.out_features = out_features
+#         self.dropout = dropout
+#         self.use_bias = use_bias
+#         self.bias = nn.Parameter(torch.Tensor(out_features))
+#         self.weight = nn.Parameter(torch.Tensor(out_features+1, in_features+1))
+#         self.reset_parameters()
+
+#     def reset_parameters(self):
+#         torch.nn.init.xavier_uniform_(self.weight, gain=math.sqrt(2))
+#         torch.nn.init.constant_(self.bias, 0)
+
+#     def forward(self, x, curv):
+#         drop_weight = F.dropout(self.weight, self.dropout, training=self.training).transpose(-1, -2)
+#         print(drop_weight.shape)
+#         v = drop_weight.narrow(-1, 0, 1)
+#         x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
+#         x_full = torch.cat([x_time, x], dim=-1)
+#         print(x_full.shape)
+#         print(torch.norm(x_full @ drop_weight, dim=-1, keepdim=False)**2  - (1/curv))
+#         print(torch.sum(x_full@v, dim=-1, keepdim=False))
+#         fv = torch.sqrt(torch.norm(x_full @ drop_weight, dim=-1, keepdim=True)**2 - (1/curv))/torch.sum(x_full@v, dim=-1, keepdim=True)
+#         print(v.repeat(1,x_full.shape[0]).transpose(-1, -2).shape)
+#         print(v.repeat(1,x_full.shape[0]).transpose(-1, -2))
+#         fv = fv*v.repeat(1, x_full.shape[0]).transpose(-1, -2)
+#         print(fv)
+#         print(drop_weight.narrow(-1, 1, drop_weight.shape[-1] - 1).shape)
+#         #M = torch.cat([fv, drop_weight.narrow(-1, 1, drop_weight.shape[-1] - 1)], dim=-1)
+#         #mv = self.manifold.mobius_matvec(drop_weight, x, curv)
+#         y_space = x_full @ drop_weight.narrow(-1, 1, drop_weight.shape[-1] - 1)
+#         y_time = fv @ x_full.transpose(-1, -2)
+#         print(y_space.shape)
+#         print(y_time.shape)
+#         #res = x_full @ M.transpose(-1, -2)
+#         res = res.narrow(-1, 1, x_full.shape[-1] - 1)
+#         # This just moves from Lorentz to the manifold (computes x_time) so we don't need it
+#         #res = self.manifold.proj(res.narrow(-1, 1, x_full.shape[-1] - 1), curv)
+#         if self.use_bias:
+#             #bias = self.manifold.proj_tan0(self.bias.view(1, -1), curv)
+#             #hyp_bias = self.manifold.expmap0(bias, curv)
+#             #hyp_bias = self.manifold.proj(hyp_bias, curv)
+#             #res = self.manifold.mobius_add(res, hyp_bias, c=curv)
+#             #res = self.manifold.proj(res, curv)
+#             #raise NotImplementedError("Bias not implemented for LorentzLinear")
+#             res = res + self.bias
+#             #res = self.manifold.proj(res, curv)
+#         return res
+
+#     def extra_repr(self):
+#         return 'in_features={}, out_features={}'.format(
+#             self.in_features, self.out_features
+#         )
+
+# Same as above, but does not compute x_time
+class LorentzLinearSimple(nn.Module):
+    """
+    Hyperbolic linear layer.
+    """
+
+    def __init__(self, in_features, out_features, dropout, use_bias = False):
+        super(LorentzLinearSimple, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.dropout = dropout
+        self.use_bias = use_bias
+        self.bias = nn.Parameter(torch.Tensor(out_features))
+        self.weight = nn.Parameter(torch.Tensor(out_features, in_features+1))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.xavier_uniform_(self.weight, gain=math.sqrt(2))
+        torch.nn.init.constant_(self.bias, 0)
+
+    def forward(self, x, curv):
+        drop_weight = F.dropout(self.weight, self.dropout, training=self.training)
+        #v = drop_weight.narrow(-1, 0, 1)
+        x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
+        x_full = torch.cat([x_time, x], dim=-1)
+        #fv = torch.sqrt(torch.norm(x_full @ drop_weight.transpose(-1, -2), dim=-1, keepdim=True) - (1/curv))/torch.sum(x_full*v)
+        #M = torch.cat([fv, drop_weight.narrow(-1, 1, drop_weight.shape[-1] - 1)], dim=-1)
+        #mv = self.manifold.mobius_matvec(drop_weight, x, curv)
+        res = x_full @ drop_weight.transpose(-1, -2)
+        # This just moves from Lorentz to the manifold (computes x_time) so we don't need it
+        #res = self.manifold.proj(res.narrow(-1, 1, x_full.shape[-1] - 1), curv)
+        if self.use_bias:
+            #bias = self.manifold.proj_tan0(self.bias.view(1, -1), curv)
+            #hyp_bias = self.manifold.expmap0(bias, curv)
+            #hyp_bias = self.manifold.proj(hyp_bias, curv)
+            #res = self.manifold.mobius_add(res, hyp_bias, c=curv)
+            #res = self.manifold.proj(res, curv)
+            #raise NotImplementedError("Bias not implemented for LorentzLinear")
+            res = res + self.bias
+            #res = self.manifold.proj(res, curv)
+        return res
+
+    def extra_repr(self):
+        return 'in_features={}, out_features={}'.format(
+            self.in_features, self.out_features
+        )
+
 class Hyperbolic_DINOHead(nn.Module):
     def __init__(self, in_dim, out_dim, use_bn=False, norm_last_layer=True, nlayers=3, hidden_dim=2048, bottleneck_dim=256,
-                 curv_init: float = 1.0, alpha_init: float = 1.0, learn_curv: bool = True, learn_alpha: bool = True):
+                 curv_init: float = 1.0, alpha_init: float = 1.0, learn_curv: bool = True, learn_alpha: bool = True,
+                 poincare: bool = False):
         super().__init__()
         # Initialize curvature parameter. Hyperboloid curvature will be `-curv`.
         # Curvature is learned in log space
@@ -156,6 +266,7 @@ class Hyperbolic_DINOHead(nn.Module):
         #self.proj_alpha = nn.Parameter(torch.tensor(1.7035**-1).log(), requires_grad=learn_alpha)
         #self.proj_alpha = nn.Parameter(torch.tensor(1).log(), requires_grad=learn_alpha)
         self.proj_alpha = nn.Parameter(torch.tensor(alpha_init).log(), requires_grad=learn_alpha)
+        self.poincare = poincare
         
         nlayers = max(nlayers, 1)
         if nlayers == 1:
@@ -173,12 +284,15 @@ class Hyperbolic_DINOHead(nn.Module):
             layers.append(nn.Linear(hidden_dim, bottleneck_dim))
             self.mlp = nn.Sequential(*layers)
         self.apply(self._init_weights)
-        # TODO: Replace last layer with a hyperbolic classifier
+        # DONE: Replace last layer with a hyperbolic classifier
         #self.last_layer = nn.utils.weight_norm(nn.Linear(bottleneck_dim, out_dim, bias=False))
 
         # Poincare Linear is already normalized
         #self.last_layer = nn.utils.weight_norm(PoincareLinear(bottleneck_dim, out_dim, out_split=1, bias=False))
-        self.last_layer = PoincareLinear(bottleneck_dim, out_dim, out_split=1, bias=False)
+        if self.poincare:
+            self.last_layer = PoincareLinear(bottleneck_dim, out_dim, out_split=1, bias=False)
+        else:
+            self.last_layer = LorentzLinearSimple(bottleneck_dim, out_dim, dropout=0.0, use_bias=False)
         # Weights are initialized to a gaussian distribution in Poincare Linear, so only fill with 1 if using norm_last_layer
         if norm_last_layer:
             self.last_layer.weight_g.data.fill_(1)
@@ -211,19 +325,22 @@ class Hyperbolic_DINOHead(nn.Module):
             x_lorentz = L.exp_map0(x, self.curv.exp())
         x_norm = torch.norm(x_lorentz, dim=1)
         log_stats.append((x_norm.mean(), x_norm.std(), x_norm.max(), x_norm.min()))
-        # TODO: Clamp the norm of the Poincare embeddings to be in a certain range
-        # TODO: Check if the rest of the Poincare modules expect negative curvature
-        with torch.autocast("cuda", dtype=torch.float32):
-            x_poincare = P.expmap0(x, -self.curv.exp(), project=False)
+        # DONE: Clamp the norm of the Poincare embeddings to be in a certain range (This is what the project method does)
+        # DONE: Check if the rest of the Poincare modules expect negative curvature (They do)
+        if self.poincare:
+            with torch.autocast("cuda", dtype=torch.float32):
+                x_poincare = P.expmap0(x, -self.curv.exp(), project=False)
+                x_norm = torch.norm(x_poincare, dim=1)
+                #print(x_norm.max())
+                x_poincare = P.project(x_poincare, -self.curv.exp(), eps=3e-3)
+                x_norm = torch.norm(x_poincare, dim=1)
+                #print(x_norm.max())
+                #exit()
             x_norm = torch.norm(x_poincare, dim=1)
-            #print(x_norm.max())
-            x_poincare = P.project(x_poincare, -self.curv.exp(), eps=3e-3)
-            x_norm = torch.norm(x_poincare, dim=1)
-            #print(x_norm.max())
-            #exit()
-        x_norm = torch.norm(x_poincare, dim=1)
-        log_stats.append((x_norm.mean(), x_norm.std(), x_norm.max(), x_norm.min()))
-        logits = self.last_layer(x_poincare, self.curv.exp())
+            log_stats.append((x_norm.mean(), x_norm.std(), x_norm.max(), x_norm.min()))
+            logits = self.last_layer(x_poincare, self.curv.exp())
+        else:
+            logits = self.last_layer(x_lorentz, self.curv.exp())
         x_norm = torch.norm(logits, dim=1)
         log_stats.append((x_norm.mean(), x_norm.std(), x_norm.max(), x_norm.min()))
         return x_lorentz, logits, log_stats
