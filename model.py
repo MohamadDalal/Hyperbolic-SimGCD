@@ -200,7 +200,7 @@ def poincare_linear(x, weight_g, weight_v, bias, c, out_split : int = 1):
 # Same as above, but does not compute x_time
 class LorentzLinearSimple(nn.Module):
     """
-    Hyperbolic linear layer.
+    Hyperbolic linear layer. Source: https://arxiv.org/abs/2105.14686
     """
 
     def __init__(self, in_features, out_features, dropout, use_bias = False):
