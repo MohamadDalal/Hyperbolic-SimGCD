@@ -169,87 +169,6 @@ def log_map0(x: Tensor, curv: float | Tensor = 1.0, eps: float = 1e-8) -> Tensor
     _output = _distance0 * x / torch.clamp(rc_xnorm, min=eps)
     return _output
 
-#def klein_transform(x: Tensor, curv: float | Tensor = 1.0) -> Tensor:
-#    x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
-#    print(x.shape, x_time.shape)
-#    return x / (curv**0.5 * x_time)
-#
-#def klein_transform_inv(x: Tensor, curv: float | Tensor = 1.0) -> Tensor:
-#    x_time = torch.sqrt(1 / (curv - curv**2*torch.sum(x**2, dim=-1, keepdim=True)))
-#    return x * (curv**0.5 * x_time)
-
-# TODO: Consider seperating into batches to avoid overflow in einstein midpoint
-
-def einstein_midpoint(x: Tensor, curv: float | Tensor = 1.0) -> Tensor:
-    """
-    Compute the Einstein midpoint of multiple points on the hyperboloid. The Einstein
-    midpoint is the point centroid of points in the Klein model.
-    This is the transformed version for the Lorentz model.
-
-    Args:
-        x: Tensor of shape `(B, D)` giving a batch of space components of
-            vectors on the hyperboloid.
-        curv: Positive scalar denoting negative hyperboloid curvature.
-
-    Returns:
-        Tensor of shape `(1, D)` giving the Einstein midpoint of input vectors.
-    """
-    x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1))
-    midpoint = torch.sum(x, dim=0) / (curv**0.5 * torch.sum(x_time))
-    return midpoint
-
-# This centroid is numerically unstable due to transforming to Klein and back
-#def einstein_midpoint2(x: Tensor, curv: float | Tensor = 1.0) -> Tensor:
-#    """
-#    Compute the Einstein midpoint of multiple points on the hyperboloid. The Einstein
-#    midpoint is the point centroid of points in the Klein model.
-#    This function transforms to Klein, finds the midpoint, and then transforms back.
-#
-#    This is numerically unstable due to transforming to Klein and back
-#
-#    Args:
-#        x: Tensor of shape `(B, D)` giving a batch of space components of
-#            vectors on the hyperboloid.
-#        curv: Positive scalar denoting negative hyperboloid curvature.
-#
-#    Returns:
-#        Tensor of shape `(1, D)` giving the Einstein midpoint of input vectors.
-#    """
-#    x = klein_transform(x, curv)
-#    lorentz_factor = (1 - curv * torch.sum(x**2, dim=-1, keepdim=True))**-0.5
-#    #print(lorentz_factor)
-#    midpoint = torch.sum(lorentz_factor*x, dim=0) / torch.sum(lorentz_factor)
-#    return klein_transform_inv(midpoint)
-
-# This centroid makes no sense, as the denominator will always be 1/sqrt(c)
-# Because <x,x>_K = -1/c. Therefore, the centroid is just sqrt(c) time sum of all vectors
-# Which in no way or form can be the middle point unless the middle point is origo or something
-# Mind you I added the minus in the denominator to match MERU, but it might be wrong
-# And the centroid might be an imaginary point (It's probably not though)
-#def centroid(x: Tensor, curv: float | Tensor = 1.0) -> Tensor:
-#    """
-#    Compute the centroid of many points on the hyperboloid. The centroid
-#    is the point on the geodesic minimizing the distance to all other points
-#    (I think). Source: https://math.stackexchange.com/a/2173370
-#
-#    Args:
-#        x: Tensor of shape `(B, D)` giving a batch of space components of
-#            vectors on the hyperboloid.
-#        curv: Positive scalar denoting negative hyperboloid curvature.
-#
-#    Returns:
-#        Tensor of shape `(1, D)` giving the Einstein midpoint of input vectors.
-#    """
-#
-#    #x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1))
-#    sum_space = torch.sum(x, dim=0)
-#    #sum_time = torch.sum(x_time)
-#    #print(torch.sum(sum_space**2))
-#    #print(sum_time**2)
-#    #print(elementwise_inner(sum_space, sum_space, curv))
-#    centroid = sum_space / (-elementwise_inner(sum_space, sum_space, curv))**0.5
-#    return centroid
-
 def half_aperture(
     x: Tensor, curv: float | Tensor = 1.0, min_radius: float = 0.1, eps: float = 1e-8
 ) -> Tensor:
@@ -314,4 +233,40 @@ def oxy_angle(x: Tensor, y: Tensor, curv: float | Tensor = 1.0, eps: float = 1e-
     acos_input = acos_numer / (torch.norm(x, dim=-1) * acos_denom + eps)
     _angle = torch.acos(torch.clamp(acos_input, min=-1 + eps, max=1 - eps))
 
+    return _angle
+
+def pairwise_oxy_angle(x: Tensor, y: Tensor, curv: float | Tensor = 1.0, eps: float = 1e-8):
+    """
+    Given two vectors `x` and `y` on the hyperboloid, compute the exterior
+    angle at `x` in the hyperbolic triangle `Oxy` where `O` is the origin
+    of the hyperboloid.
+
+    This expression is derived using the Hyperbolic law of cosines.
+
+    Args:
+        x: Tensor of shape `(B, D)` giving a batch of space components of
+            vectors on the hyperboloid.
+        y: Tensor of same shape as `x` giving another batch of vectors.
+        curv: Positive scalar denoting negative hyperboloid curvature.
+
+    Returns:
+        Tensor of shape `(B, )` giving the required angle. Values of this
+        tensor lie in `(0, pi)`.
+    """
+
+    # Calculate time components of inputs (multiplied with `sqrt(curv)`):
+    x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
+    y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1, keepdim=True))
+
+    # Calculate lorentzian inner product multiplied with curvature. We do not use
+    # the `pairwise_inner` implementation to save some operations (since we only
+    # need the diagonal elements).
+    c_xyl = curv * pairwise_inner(x, y, curv)
+
+    # Make the numerator and denominator for input to arc-cosh, shape: (B, )
+    acos_numer = y_time.T + c_xyl * x_time
+    acos_denom = torch.sqrt(torch.clamp(c_xyl**2 - 1, min=eps))
+
+    acos_input = acos_numer / (torch.norm(x, dim=-1, keepdim=True) * acos_denom + eps)
+    _angle = torch.acos(torch.clamp(acos_input, min=-1 + eps, max=1 - eps))
     return _angle
