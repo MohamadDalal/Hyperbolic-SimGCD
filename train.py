@@ -4,7 +4,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim import SGD, lr_scheduler
+from torch.optim import AdamW, SGD, lr_scheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -19,7 +19,7 @@ from model import DINOHead, Hyperbolic_DINOHead, info_nce_logits, SupConLoss, Di
 import wandb
 
 def train(student, train_loader, test_loader, unlabelled_train_loader, args, optimizer, scheduler,
-          best_test_acc = 0, start_epoch = 0):
+          best_test_acc = 0, start_epoch = 0, best_loss = 1e10):
     fp16_scaler = None
     if args.fp16:
         fp16_scaler = torch.GradScaler("cuda")
@@ -33,6 +33,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
                     )
     
     best_test_acc_lab = best_test_acc
+    best_loss = best_loss 
     freeze_curv_for_warmup = args.freeze_curvature.lower() == "warmup" and args.hyperbolic
     if freeze_curv_for_warmup:
         student[1].train_curvature(False)
@@ -51,10 +52,23 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
         cls_loss_record = AverageMeter()
         cluster_loss_record = AverageMeter()
 
+        if args.angle_loss:
+            dist_con_loss_record = AverageMeter()
+            angle_con_loss_record = AverageMeter()
+            dist_sup_con_loss_record = AverageMeter()
+            angle_sup_con_loss_record = AverageMeter()
+
         if epoch >= args.epochs_warmup and freeze_curv_for_warmup:
             student[1].train_curvature(True)
             freeze_curv_for_warmup = False
             print("Unfreezing curvature at epoch {}".format(epoch))
+
+        if args.angle_loss:
+            if args.decay_angle_loss_weight:
+                # Decay angle loss weight
+                angle_loss_weight = args.max_angle_loss_weight*(1 - (epoch / args.epochs))
+            else:
+                angle_loss_weight = args.max_angle_loss_weight
 
         # TODO: Check about checkpointing the teacher model too
         student.train()
@@ -76,27 +90,32 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
                     step_log_dict["step/train/embed_mean"] = output_log_stats[0][0]
                     step_log_dict["step/train/embed_stddiv"] = output_log_stats[0][1]
                     step_log_dict["step/train/embed_max"] = output_log_stats[0][2]
-                    step_log_dict["step/train/embed_min"] = output_log_stats[0][3]
+                    step_log_dict["step/train/embed_min"] = output_log_stats[0][3]                    
                     if args.hyperbolic:
+                        if args.euclidean_clipping is not None:
+                            step_log_dict["step/train/cliped_embed_mean"] = output_log_stats[3+1*args.poincare][0]
+                            step_log_dict["step/train/cliped_embed_stddiv"] = output_log_stats[3+1*args.poincare][1]
+                            step_log_dict["step/train/cliped_embed_max"] = output_log_stats[3+1*args.poincare][2]
+                            step_log_dict["step/train/cliped_embed_min"] = output_log_stats[3+1*args.poincare][3]
+                            step_log_dict["step/train/cliped_embed2_mean"] = output_log_stats[4+1*args.poincare][0]
+                            step_log_dict["step/train/cliped_embed2_stddiv"] = output_log_stats[4+1*args.poincare][1]
+                            step_log_dict["step/train/cliped_embed2_max"] = output_log_stats[4+1*args.poincare][2]
+                            step_log_dict["step/train/cliped_embed2_min"] = output_log_stats[4+1*args.poincare][3]   
                         step_log_dict["step/train/curvature"] = student[1].get_curvature()
                         step_log_dict["step/train/proj_alpha"] = student[1].get_proj_alpha()
                         step_log_dict["step/train/hyp_lorentz_mean"] = output_log_stats[1][0]
                         step_log_dict["step/train/hyp_lorentz_stddiv"] = output_log_stats[1][1]
                         step_log_dict["step/train/hyp_lorentz_max"] = output_log_stats[1][2]
                         step_log_dict["step/train/hyp_lorentz_min"] = output_log_stats[1][3]
-                        step_log_dict["step/train/hyp_poincare_mean"] = output_log_stats[2][0]
-                        step_log_dict["step/train/hyp_poincare_stddiv"] = output_log_stats[2][1]
-                        step_log_dict["step/train/hyp_poincare_max"] = output_log_stats[2][2]
-                        step_log_dict["step/train/hyp_poincare_min"] = output_log_stats[2][3]
-                        step_log_dict["step/train/hyp_logits_mean"] = output_log_stats[3][0]
-                        step_log_dict["step/train/hyp_logits_stddiv"] = output_log_stats[3][1]
-                        step_log_dict["step/train/hyp_logits_max"] = output_log_stats[3][2]
-                        step_log_dict["step/train/hyp_logits_min"] = output_log_stats[3][3]
-                    else:
-                        step_log_dict["step/train/logits_mean"] = output_log_stats[1][0]
-                        step_log_dict["step/train/logits_stddiv"] = output_log_stats[1][1]
-                        step_log_dict["step/train/logits_max"] = output_log_stats[1][2]
-                        step_log_dict["step/train/logits_min"] = output_log_stats[1][3]
+                        if args.poincare:
+                            step_log_dict["step/train/hyp_poincare_mean"] = output_log_stats[2][0]
+                            step_log_dict["step/train/hyp_poincare_stddiv"] = output_log_stats[2][1]
+                            step_log_dict["step/train/hyp_poincare_max"] = output_log_stats[2][2]
+                            step_log_dict["step/train/hyp_poincare_min"] = output_log_stats[2][3]
+                        step_log_dict["step/train/hyp_logits_mean"] = output_log_stats[2+1*args.poincare][0]
+                        step_log_dict["step/train/hyp_logits_stddiv"] = output_log_stats[2+1*args.poincare][1]
+                        step_log_dict["step/train/hyp_logits_max"] = output_log_stats[2+1*args.poincare][2]
+                        step_log_dict["step/train/hyp_logits_min"] = output_log_stats[2+1*args.poincare][3]
 
                     # clustering, sup
                     sup_logits = torch.cat([f[mask_lab] for f in (student_out / 0.1).chunk(2)], dim=0)
@@ -122,13 +141,35 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
                     # TODO: Do we need to use a hyperbolic cross entropy loss? I forgot to consider that.
                     contrastive_loss = torch.nn.CrossEntropyLoss()(contrastive_logits, contrastive_labels)
 
+                    if args.angle_loss:
+                        dist_con_loss_record.update(contrastive_loss.item(), class_labels.size(0))
+                        step_log_dict["step/train/dist_contrastive_loss"] = contrastive_loss.item()
+                        if args.hyperbolic:
+                            angle_logits, angle_labels = info_nce_logits(features=student_proj, args=args, curv=model[1].get_curvature(), use_angles=True, DEBUG_DIR=DEBUG_DIR)
+                        else:
+                            angle_logits, angle_labels = info_nce_logits(features=student_proj, args=args, use_angles=True, DEBUG_DIR=DEBUG_DIR)
+                        angle_loss = torch.nn.CrossEntropyLoss()(angle_logits, angle_labels)
+                        angle_con_loss_record.update(angle_loss.item(), class_labels.size(0))
+                        step_log_dict["step/train/angle_contrastive_loss"] = contrastive_loss.item()
+                        contrastive_loss = (1 - angle_loss_weight) * contrastive_loss + angle_loss_weight * angle_loss
+
                     # representation learning, sup
                     student_proj = torch.cat([f[mask_lab].unsqueeze(1) for f in student_proj.chunk(2)], dim=1)
                     student_proj = student_proj if args.hyperbolic else torch.nn.functional.normalize(student_proj, dim=-1)
                     sup_con_labels = class_labels[mask_lab]
-                    sup_con_loss, SCL_log_stats = SupConLoss(hyperbolic=args.hyperbolic)(student_proj, labels=sup_con_labels,
+                    sup_con_loss, SCL_log_stats = SupConLoss(hyperbolic=args.hyperbolic, poincare=args.poincare)(student_proj, labels=sup_con_labels,
                                                             curv = student[1].get_curvature() if args.hyperbolic else None,
                                                             DEBUG_DIR = DEBUG_DIR)
+                    if args.angle_loss:
+                        dist_sup_con_loss_record.update(sup_con_loss.item(), class_labels.size(0))
+                        step_log_dict["step/train/dist_sup_con_loss"] = sup_con_loss.item()
+                        if args.hyperbolic:
+                            angle_sup_con_loss, angle_SCL_log_stats = SupConLoss(hyperbolic=args.hyperbolic, poincare=args.poincare)(student_proj, labels=sup_con_labels, curv=model[1].get_curvature(), use_angles=True, DEBUG_DIR = DEBUG_DIR) 
+                        else:
+                            angle_sup_con_loss, angle_SCL_log_stats = SupConLoss(hyperbolic=args.hyperbolic, poincare=args.poincare)(student_proj, labels=sup_con_labels, use_angles=True, DEBUG_DIR = DEBUG_DIR) 
+                        angle_sup_con_loss_record.update(angle_sup_con_loss.item(), class_labels.size(0))
+                        step_log_dict["step/train/angle_sup_con_loss"] = angle_sup_con_loss.item()
+                        sup_con_loss = (1 - angle_loss_weight) * sup_con_loss + angle_loss_weight * angle_sup_con_loss
 
                     pstr = ''
                     pstr += f'cls_loss: {cls_loss.item():.4f} '
@@ -175,13 +216,85 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
                 step_log_dict["debug/step/train/SCL_log_prob_masked_stddiv"] = SCL_log_stats[4][1]
                 step_log_dict["debug/step/train/SCL_log_prob_masked_max"] = SCL_log_stats[4][2]
                 step_log_dict["debug/step/train/SCL_log_prob_masked_min"] = SCL_log_stats[4][3]
+                if args.angle_loss:
+                    step_log_dict["debug/step/train/Angle/SCL_logits_mean"] = angle_SCL_log_stats[0][0]
+                    step_log_dict["debug/step/train/Angle/SCL_logits_stddiv"] = angle_SCL_log_stats[0][1]
+                    step_log_dict["debug/step/train/Angle/SCL_logits_max"] = angle_SCL_log_stats[0][2]
+                    step_log_dict["debug/step/train/Angle/SCL_logits_min"] = angle_SCL_log_stats[0][3]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_mean"] = angle_SCL_log_stats[1][0]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_stddiv"] = angle_SCL_log_stats[1][1]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_max"] = angle_SCL_log_stats[1][2]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_min"] = angle_SCL_log_stats[1][3]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_masked_mean"] = angle_SCL_log_stats[2][0]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_masked_stddiv"] = angle_SCL_log_stats[2][1]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_masked_max"] = angle_SCL_log_stats[2][2]
+                    step_log_dict["debug/step/train/Angle/SCL_exp_logits_masked_min"] = angle_SCL_log_stats[2][3]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_mean"] = angle_SCL_log_stats[3][0]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_stddiv"] = angle_SCL_log_stats[3][1]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_max"] = angle_SCL_log_stats[3][2]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_min"] = angle_SCL_log_stats[3][3]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_masked_mean"] = angle_SCL_log_stats[4][0]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_masked_stddiv"] = angle_SCL_log_stats[4][1]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_masked_max"] = angle_SCL_log_stats[4][2]
+                    step_log_dict["debug/step/train/Angle/SCL_log_prob_masked_min"] = angle_SCL_log_stats[4][3]
                 
                 optimizer.zero_grad()
                 if fp16_scaler is None:
                     loss.backward()
+                    # Add gradient clipping or normalization and logging here
+                    grad_sum = 0
+                    grad_max = 0
+                    num_grad = 0
+                    for p in model.parameters():
+                        if p.grad is not None:
+                            p.grad = min(1, args.max_grad_norm/p.grad.norm().item())*p.grad
+                            grad_sum += p.grad.norm().item()
+                            grad_max = max(grad_max, p.grad.norm().item())
+                            num_grad += 1
+                    if (grad_sum/num_grad) > args.avg_grad_norm:
+                        norm_factor = args.avg_grad_norm*num_grad
+                        for p in model.parameters():
+                            if p.grad is not None:
+                                p.grad = p.grad/norm_factor
+                    step_log_dict["step/train/grad_sum"] = grad_sum
+                    step_log_dict["step/train/grad_max"] = grad_max
+                    step_log_dict["step/train/grad_avg"] = grad_sum/num_grad
+                    if args.hyperbolic:
+                        if not args.freeze_curvature.lower() == "full":
+                            model[1].curv.grad = min(1, args.curvature/model[1].curv.grad.norm().item())*model[1].curv.grad
+                            step_log_dict["step/train/grad_curvature"] = model[1].curv.grad
+                        if not args.freeze_proj_alpha.lower() == "full":
+                            model[1].proj_alpha.grad = min(1, args.proj_alpha/model[1].proj_alpha.grad.norm().item())*model[1].proj_alpha.grad
+                            step_log_dict["step/train/grad_proj_alpha"] = model[1].proj_alpha.grad
                     optimizer.step()
                 else:
                     fp16_scaler.scale(loss).backward()
+                    # Add gradient clipping or normalization and logging here
+                    # I am not sure if this works the same with the fp16 scaler, so I better train without it
+                    grad_sum = 0
+                    grad_max = 0
+                    num_grad = 0
+                    for p in model.parameters():
+                        if p.grad is not None:
+                            p.grad = min(1, args.max_grad_norm/p.grad.norm().item())*p.grad
+                            grad_sum += p.grad.norm().item()
+                            grad_max = max(grad_max, p.grad.norm().item())
+                            num_grad += 1
+                    if (grad_sum/num_grad) > args.avg_grad_norm:
+                        norm_factor = args.avg_grad_norm*num_grad
+                        for p in model.parameters():
+                            if p.grad is not None:
+                                p.grad = p.grad/norm_factor
+                    step_log_dict["step/train/grad_sum"] = grad_sum
+                    step_log_dict["step/train/grad_max"] = grad_max
+                    step_log_dict["step/train/grad_avg"] = grad_sum/num_grad
+                    if args.hyperbolic:
+                        if not args.freeze_curvature.lower() == "full":
+                            model[1].curv.grad = min(1, args.curvature/model[1].curv.grad.norm().item())*model[1].curv.grad
+                            step_log_dict["step/train/grad_curvature"] = model[1].curv.grad
+                        if not args.freeze_proj_alpha.lower() == "full":
+                            model[1].proj_alpha.grad = min(1, args.proj_alpha/model[1].proj_alpha.grad.norm().item())*model[1].proj_alpha.grad
+                            step_log_dict["step/train/grad_proj_alpha"] = model[1].proj_alpha.grad
                     fp16_scaler.step(optimizer)
                     fp16_scaler.update()
                 wandb.log(step_log_dict)
@@ -195,6 +308,11 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
         epoch_log_dict = {"epoch": epoch+1, "epoch/train/loss": loss_record.avg,  "epoch/train/learning_rate": scheduler.get_last_lr()[0],
                           "epoch/train/contrstive_loss": con_loss_record.avg, "epoch/train/sup_con_loss": sup_con_loss_record.avg,
                           "epoch/train/cls_loss": cls_loss_record.avg, "epoch/train/cluster_loss": cluster_loss_record.avg}
+        if args.angle_loss:
+            epoch_log_dict["epoch/train/dist_con_loss"] = dist_con_loss_record.avg
+            epoch_log_dict["epoch/train/angle_con_loss"] = angle_con_loss_record.avg
+            epoch_log_dict["epoch/train/dist_sup_con_loss"] = dist_sup_con_loss_record.avg
+            epoch_log_dict["epoch/train/angle_sup_con_loss"] = angle_sup_con_loss_record.avg
 
         if args.hyperbolic:
             print(f"Current curvature: {student[1].get_curvature()}")
@@ -230,6 +348,14 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
 
             best_test_acc_lab = old_acc
 
+        if loss_record.avg < best_loss:
+            print('Best Average Loss: {:.4f}'.format(loss_record.avg))
+            torch.save(model.state_dict(), args.model_path[:-3] + f'_best_loss.pt')
+            print("model saved to {}.".format(args.model_path[:-3] + f'_best_loss.pt'))
+            wandb.save(args.model_path[:-3] + f'_best_loss.pt')
+
+            best_loss = loss_record.avg
+
         #args_copy = Namespace(**vars(args))
         #args_copy.writer = None
         torch.save({
@@ -240,6 +366,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
             #"arguments": args,
             "wandb_run_id": wandb.run.id,
             "best_test_acc": best_test_acc_lab,
+            "best_loss": best_loss
         }, args.model_path)
         print("model saved to {}.".format(args.model_path))
 
@@ -326,12 +453,24 @@ if __name__ == "__main__":
     parser.add_argument('--seed', default=1, type=int)
     parser.add_argument('--wandb_mode', type=str, default="online")
     parser.add_argument('--epochs_warmup', default=2, type=int)
+    parser.add_argument('--norm_last_layer', action='store_true', default=False)
     parser.add_argument('--hyperbolic', action='store_true', default=False)
+    parser.add_argument('--poincare', action='store_true', default=False)
+    parser.add_argument('--original_poincare_layer', action='store_true', default=False)
+    parser.add_argument('--euclidean_clipping', type=float, default=None)
     parser.add_argument('--curvature', type=float, default=1.0)
     parser.add_argument('--freeze_curvature', type=str, default="false")
     parser.add_argument('--proj_alpha', type=float, default=1.7035**-1)
     parser.add_argument('--freeze_proj_alpha', type=str, default="false")
     parser.add_argument('--checkpoint_path', type=str)
+    parser.add_argument('--angle_loss', action='store_true', default=False)
+    parser.add_argument('--max_angle_loss_weight', type=float, default=0.5)
+    parser.add_argument('--decay_angle_loss_weight', action='store_true', default=False)
+    parser.add_argument('--use_adam', action='store_true', default=False)
+    #parser.add_argument('--mlp_out_dim', type=int, default=768)
+    parser.add_argument('--use_dinov2', action='store_true', default=False)
+    parser.add_argument('--max_grad_norm', type=float, default=1.0)
+    parser.add_argument('--avg_grad_norm', type=float, default=2.5)
 
     # ----------------------
     # INIT
@@ -356,7 +495,7 @@ if __name__ == "__main__":
     args.interpolation = 3
     args.crop_pct = 0.875
 
-    backbone = torch.hub.load('facebookresearch/dino:main', 'dino_vitb16')
+    backbone = torch.hub.load('facebookresearch/dinov2:main', 'dinov2_vitb14') if args.use_dinov2 else torch.hub.load('facebookresearch/dino:main', 'dino_vitb16')
 
     if args.warmup_model_dir is not None:
         args.logger.info(f'Loading weights from {args.warmup_model_dir}')
@@ -414,18 +553,20 @@ if __name__ == "__main__":
                               sampler=sampler, drop_last=True, pin_memory=True)
     test_loader_unlabelled = DataLoader(unlabelled_train_examples_test, num_workers=args.num_workers,
                                         batch_size=256, shuffle=False, pin_memory=False)
-    # test_loader_labelled = DataLoader(test_dataset, num_workers=args.num_workers,
-    #                                   batch_size=256, shuffle=False, pin_memory=False)
+    test_loader_labelled = DataLoader(test_dataset, num_workers=args.num_workers,
+                                      batch_size=256, shuffle=False, pin_memory=False)
 
     # ----------------------
     # PROJECTION HEAD
     # ----------------------
     if args.hyperbolic:
-        projector = Hyperbolic_DINOHead(in_dim=args.feat_dim, out_dim=args.mlp_out_dim,
+        projector = Hyperbolic_DINOHead(in_dim=args.feat_dim, out_dim=args.mlp_out_dim, norm_last_layer=args.norm_last_layer,
                                                                nlayers=args.num_mlp_layers, curv_init=args.curvature,
                                                                learn_curv=not args.freeze_curvature.lower() == "full",
                                                                alpha_init=args.proj_alpha,
-                                                               learn_alpha=not args.freeze_proj_alpha.lower() == "full")
+                                                               learn_alpha=not args.freeze_proj_alpha.lower() == "full",
+                                                               poincare=args.poincare, euclidean_clip_value=args.euclidean_clipping,
+                                                               original_poincare_layer=args.original_poincare_layer)
     else:
         projector = DINOHead(in_dim=args.feat_dim, out_dim=args.mlp_out_dim, nlayers=args.num_mlp_layers)
     model = nn.Sequential(backbone, projector).to(device)
@@ -434,7 +575,10 @@ if __name__ == "__main__":
     # OPTIMIZER AND SCHEDULER
     # ----------------------
     params_groups = get_params_groups(model)
-    optimizer = SGD(params_groups, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    if args.use_adam:
+        optimizer = AdamW(params_groups, lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        optimizer = SGD(params_groups, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
     scheduler = lr_scheduler.CosineAnnealingLR(
             optimizer,
@@ -448,7 +592,9 @@ if __name__ == "__main__":
     checkpoint = {}
     start_epoch = 0
     best_test_acc = 0
+    best_loss = 1e10
     if not args.checkpoint_path is None:
+            print("Loading checkpoint from {}".format(args.checkpoint_path))
             checkpoint = torch.load(args.checkpoint_path, map_location=device, weights_only=False)
             if not "model_state_dict" in checkpoint.keys():
                 model.load_state_dict(checkpoint)
@@ -459,6 +605,7 @@ if __name__ == "__main__":
                 scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
                 start_epoch = checkpoint["epoch"]
                 best_test_acc = checkpoint["best_test_acc"]
+                best_loss = checkpoint["best_loss"]
 
     # ----------------------
     # INITIALIZE WANDB
@@ -487,4 +634,6 @@ if __name__ == "__main__":
     # ----------------------
     # train(model, train_loader, test_loader_labelled, test_loader_unlabelled, args)
     train(model, train_loader, None, test_loader_unlabelled, args, optimizer, scheduler,
-          best_test_acc=best_test_acc, start_epoch=start_epoch)
+          best_test_acc=best_test_acc, start_epoch=start_epoch, best_loss=best_loss)
+    print("Testing last epoch of trained model on test set")
+    test(model, test_loader_labelled, epoch=0, save_name='Test ACC', args=args)

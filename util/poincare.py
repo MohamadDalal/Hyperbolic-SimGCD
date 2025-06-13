@@ -280,6 +280,65 @@ def _logmap0(y: torch.Tensor, k, dim: int = -1):
     y_norm = y.norm(dim=dim, p=2, keepdim=True).clamp_min(1e-15)
     return (y / y_norm) * artan_k(y_norm, k)
 
+def pairwise_dist(
+    x: torch.Tensor, y: torch.Tensor, curv: float | torch.Tensor = 1.0, eps: float = 1e-8
+) -> torch.Tensor:
+    """
+    Compute the pairwise geodesic distance between two batches of points on
+    the Poincar disc.
+
+    Args:
+        x: Tensor of shape `(B1, D)` giving a space components of a batch
+            of point on the Poincare disc.
+        y: Tensor of shape `(B2, D)` giving a space components of another
+            batch of points on the Poincare disc.
+        curv: Positive scalar denoting negative disc curvature.
+        eps: Small float number to avoid numerical instability.
+
+    Returns:
+        Tensor of shape `(B1, B2)` giving pairwise distance along the geodesics
+        connecting the input points.
+    """
+    
+    curv = -curv # To be consistent with the rest of the functions, we expect c<0
+    x2 = x.pow(2).sum(dim=-1, keepdim=False)
+    y2 = y.pow(2).sum(dim=-1, keepdim=False)
+    xy = (x.unsqueeze(1) - y.unsqueeze(0)).pow(2).sum(dim=-1, keepdim=False)
+
+    # Ensure numerical stability in arc-cosh by clamping input.
+    c_xyl = 1+((2*xy)/((1-x2).unsqueeze(1) * (1-y2).unsqueeze(0)))
+    _distance = torch.acosh(torch.clamp(c_xyl, min=1 + eps))
+    return _distance / curv**0.5
+
+def elementwise_dist(
+    x: torch.Tensor, y: torch.Tensor, curv: float | torch.Tensor = 1.0, eps: float = 1e-8
+) -> torch.Tensor:
+    """
+    Compute the elementwise geodesic distance between two batches of points on
+    the Poincare disc.
+
+    Args:
+        x: Tensor of shape `(B, D)` giving a space components of a batch
+            of points on the Poincare disc.
+        y: Tensor of same shape as `x` giving another batch of points.
+        curv: Positive scalar denoting negative disc curvature.
+        eps: Small float number to avoid numerical instability.
+
+    Returns:
+        Tensor of shape `(B, )` giving elemntwise distance along the geodesics
+        connecting the input points.
+    """
+    
+    curv = -curv # To be consistent with the rest of the functions, we expect c<0
+    x2 = x.pow(2).sum(dim=-1, keepdim=False)
+    y2 = y.pow(2).sum(dim=-1, keepdim=False)
+    xy = (x - y).pow(2).sum(dim=-1, keepdim=False)
+
+    # Ensure numerical stability in arc-cosh by clamping input.
+    c_xyl = 1+((2*xy)/((1-x2) * (1-y2)))
+    _distance = torch.acosh(torch.clamp(c_xyl, min=1 + eps))
+    return _distance / curv**0.5
+
 
 def lorentz_to_poincare(x, k, dim=-1):
     r"""
