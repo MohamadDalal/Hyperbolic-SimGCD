@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import AdamW, SGD, lr_scheduler
+from geoopt.optim import RiemannianSGD, RiemannianAdamas as GR_SGD, GR_Adam
+from optim import RiemannianSGD, RiemannianAdam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -17,6 +19,18 @@ from config import exp_root
 from model import DINOHead, Hyperbolic_DINOHead, info_nce_logits, SupConLoss, DistillLoss, ContrastiveLearningViewGenerator, get_params_groups
 
 import wandb
+
+class MultipleOptimizer(object):
+    def __init__(self, *op):
+        self.optimizers = op
+
+    def zero_grad(self):
+        for op in self.optimizers:
+            op.zero_grad()
+
+    def step(self):
+        for op in self.optimizers:
+            op.step()
 
 def train(student, train_loader, test_loader, unlabelled_train_loader, args, optimizer, scheduler,
           best_test_acc = 0, start_epoch = 0, best_loss = 1e10):
@@ -101,8 +115,8 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
                             step_log_dict["step/train/cliped_embed2_stddiv"] = output_log_stats[4+1*args.poincare][1]
                             step_log_dict["step/train/cliped_embed2_max"] = output_log_stats[4+1*args.poincare][2]
                             step_log_dict["step/train/cliped_embed2_min"] = output_log_stats[4+1*args.poincare][3]   
-                        step_log_dict["step/train/curvature"] = student[1].get_curvature()
-                        step_log_dict["step/train/proj_alpha"] = student[1].get_proj_alpha()
+                        step_log_dict["step/train/curvature"] = student[1].get_curvature().item()
+                        step_log_dict["step/train/proj_alpha"] = student[1].get_proj_alpha().item()
                         step_log_dict["step/train/hyp_lorentz_mean"] = output_log_stats[1][0]
                         step_log_dict["step/train/hyp_lorentz_stddiv"] = output_log_stats[1][1]
                         step_log_dict["step/train/hyp_lorentz_max"] = output_log_stats[1][2]
@@ -315,10 +329,10 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
             epoch_log_dict["epoch/train/angle_sup_con_loss"] = angle_sup_con_loss_record.avg
 
         if args.hyperbolic:
-            print(f"Current curvature: {student[1].get_curvature()}")
-            print(f"Current projection weight: {student[1].get_proj_alpha()}")
-            epoch_log_dict["epoch/train/curvature"] = student[1].get_curvature()
-            epoch_log_dict["epoch/train/proj_alpha"] = student[1].get_proj_alpha()
+            print(f"Current curvature: {student[1].get_curvature().item()}")
+            print(f"Current projection weight: {student[1].get_proj_alpha().item()}")
+            epoch_log_dict["epoch/train/curvature"] = student[1].get_curvature().item()
+            epoch_log_dict["epoch/train/proj_alpha"] = student[1].get_proj_alpha().item()
 
         if loss.isnan():
             break
@@ -431,6 +445,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--grad_from_block', type=int, default=11)
     parser.add_argument('--lr', type=float, default=0.1)
+    parser.add_argument('--lr2', type=float, default=0.01)
     parser.add_argument('--gamma', type=float, default=0.1)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
@@ -457,6 +472,7 @@ if __name__ == "__main__":
     parser.add_argument('--hyperbolic', action='store_true', default=False)
     parser.add_argument('--poincare', action='store_true', default=False)
     parser.add_argument('--original_poincare_layer', action='store_true', default=False)
+    parser.add_argument('--simple_lorentz_layer', action='store_true', default=True)
     parser.add_argument('--euclidean_clipping', type=float, default=None)
     parser.add_argument('--curvature', type=float, default=1.0)
     parser.add_argument('--freeze_curvature', type=str, default="false")
@@ -466,7 +482,10 @@ if __name__ == "__main__":
     parser.add_argument('--angle_loss', action='store_true', default=False)
     parser.add_argument('--max_angle_loss_weight', type=float, default=0.5)
     parser.add_argument('--decay_angle_loss_weight', action='store_true', default=False)
+    parser.add_argument('--seperate_optimizers', action='store_true', default=False)
+    parser.add_argument('--geoopt_optimizers', action='store_true', default=False)
     parser.add_argument('--use_adam', action='store_true', default=False)
+    parser.add_argument('--use_adam2', action='store_true', default=False)
     #parser.add_argument('--mlp_out_dim', type=int, default=768)
     parser.add_argument('--use_dinov2', action='store_true', default=False)
     parser.add_argument('--max_grad_norm', type=float, default=1.0)
@@ -574,13 +593,34 @@ if __name__ == "__main__":
     # ----------------------
     # OPTIMIZER AND SCHEDULER
     # ----------------------
-    params_groups = get_params_groups(model)
-    if args.use_adam:
-        optimizer = AdamW(params_groups, lr=args.lr, weight_decay=args.weight_decay)
-    else:
-        optimizer = SGD(params_groups, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
-    scheduler = lr_scheduler.CosineAnnealingLR(
+    if args.seperate_optimizers:
+        params_groups1 = get_params_groups(model, ["1.last_layer"])
+        if args.use_adam:
+            optimizer1 = AdamW(params_groups1, lr=args.lr, weight_decay=args.weight_decay)
+        else:
+            optimizer1 = SGD(params_groups1, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+        params_groups2 = get_params_groups(model, ["1.last_layer"], ignore_keywords = False)
+        if args.use_adam2:
+            optimizer2 = GR_Adam(params_groups2, lr=args.lr2, weight_decay=args.weight_decay) if args.geoopt_optimizers else RiemannianAdam(params_groups2, lr=args.lr, weight_decay=args.weight_decay)
+        else:
+            optimizer2 = GR_SGD(params_groups2, lr=args.lr2, momentum=args.momentum, weight_decay=args.weight_decay) if args.geoopt_optimizers else RiemannianSGD(params_groups2, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+        scheduler = lr_scheduler.CosineAnnealingLR(
+            optimizer1,
+            T_max=args.epochs,
+            eta_min=args.lr * 1e-3,
+        )
+        optimizer = MultipleOptimizer([optimizer1, optimizer2])
+    else:
+        params_groups = get_params_groups(model)
+        if args.use_adam:
+            optimizer = AdamW(params_groups, lr=args.lr, weight_decay=args.weight_decay)
+        else:
+            optimizer = SGD(params_groups, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+        scheduler = lr_scheduler.CosineAnnealingLR(
             optimizer,
             T_max=args.epochs,
             eta_min=args.lr * 1e-3,

@@ -9,3 +9,4 @@ torch
 torchvision
 tqdm
 wandb
+git+https://github.com/geoopt/geoopt.git # for geoopt

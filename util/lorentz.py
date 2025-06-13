@@ -44,8 +44,11 @@ def pairwise_inner(x: Tensor, y: Tensor, curv: float | Tensor = 1.0):
         between input vectors.
     """
 
-    x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
-    y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1, keepdim=True))
+    #x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
+    #y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1, keepdim=True))
+    d = x.shape[-1] - 1
+    x_time = x.narrow(-1, 0, 1); y_time = y.narrow(-1, 0, 1)
+    x = x.narrow(-1, 1, d); y = y.narrow(-1, 1, d)
     xyl = x @ y.T - x_time @ y_time.T
     return xyl
 
@@ -90,8 +93,11 @@ def elementwise_inner(x: Tensor, y: Tensor, curv: float | Tensor = 1.0) -> Tenso
         between input vectors.
     """
 
-    x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1))
-    y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1))
+    #x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1))
+    #y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1))
+    d = x.shape[-1] - 1
+    x_time = x.narrow(-1, 0, 1); y_time = y.narrow(-1, 0, 1)
+    x = x.narrow(-1, 1, d); y = y.narrow(-1, 1, d)
     xyl = torch.sum(x * y, dim=-1) - x_time * y_time
     return xyl
 
@@ -218,8 +224,11 @@ def oxy_angle(x: Tensor, y: Tensor, curv: float | Tensor = 1.0, eps: float = 1e-
     """
 
     # Calculate time components of inputs (multiplied with `sqrt(curv)`):
-    x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1))
-    y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1))
+    #x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1))
+    #y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1))
+    d = x.shape[-1] - 1
+    x_time = x.narrow(-1, 0, 1); y_time = y.narrow(-1, 0, 1)
+    x = x.narrow(-1, 1, d); y = y.narrow(-1, 1, d)
 
     # Calculate lorentzian inner product multiplied with curvature. We do not use
     # the `pairwise_inner` implementation to save some operations (since we only
@@ -255,8 +264,11 @@ def pairwise_oxy_angle(x: Tensor, y: Tensor, curv: float | Tensor = 1.0, eps: fl
     """
 
     # Calculate time components of inputs (multiplied with `sqrt(curv)`):
-    x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
-    y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1, keepdim=True))
+    #x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
+    #y_time = torch.sqrt(1 / curv + torch.sum(y**2, dim=-1, keepdim=True))
+    d = x.shape[-1] - 1
+    x_time = x.narrow(-1, 0, 1); y_time = y.narrow(-1, 0, 1)
+    x = x.narrow(-1, 1, d); y = y.narrow(-1, 1, d)
 
     # Calculate lorentzian inner product multiplied with curvature. We do not use
     # the `pairwise_inner` implementation to save some operations (since we only
