@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH --output="logs/SimGCD-CUB-Hyperbolic.log"
-#SBATCH --job-name="SimGCD-CUB-Hyperbolic"
+#SBATCH --output="logs/SimGCD-SCars-Hyperbolic.log"
+#SBATCH --job-name="SimGCD-SCars-Hyperbolic"
 #SBATCH --time=12:00:00
 #SBATCH --signal=B:SIGTERM@30
 #SBATCH --gres=gpu:1
@@ -16,9 +16,9 @@
 container_path="${HOME}/pytorch-24.08.sif"
 
 # Dynamically set output and error filenames using job ID and iteration
-outfile="logs/SimGCD-CUB-Hyperbolic.out"
+outfile="logs/SimGCD-SCars-Hyperbolic.out"
 
-exp_id="SimGCD-CUB-Hyperbolic"
+exp_id="SimGCD-SCars-Hyperbolic"
 
 # Print the filenames for debugging
 echo "Output file: ${outfile}"
@@ -42,7 +42,7 @@ nvidia-smi
 
 # TODO: Investigate the double exp_id
 srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${container_path} ${PYTHON} train.py \
-            --dataset_name 'cub' \
+            --dataset_name 'scars' \
             --batch_size 128 \
             --grad_from_block 11 \
             --epochs 200 \
@@ -59,7 +59,7 @@ srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${containe
             --teacher_temp 0.04 \
             --warmup_teacher_temp_epochs 30 \
             --memax_weight 1 \
-            --exp_id 'CUB-Hyperbolic-Train' \
+            --exp_id 'SCars-Hyperbolic-Train' \
             --wandb_mode 'online' \
             --hyperbolic \
             --curvature '0.05' \
@@ -73,7 +73,7 @@ srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${containe
             --max_grad_norm 1.0 \
             --avg_grad_norm 0.25 \
             --use_dinov2 \
-            --checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/CUB-Hyperbolic-Train/checkpoints/model.pt'
+            --checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/SCars-Hyperbolic-Train/checkpoints/model.pt'
 #> ${SAVE_DIR}logfile_${EXP_NUM}.out
 
 #-m methods.contrastive_training.contrastive_training --dataset_name 'cub' --batch_size 128 --grad_from_block 11 --epochs 200 --base_model vit_dino --num_workers 16 --use_ssb_splits 'True' --sup_con_weight 0.35 --weight_decay 5e-5 --contrast_unlabel_only 'False' --exp_id test_exp --transform 'imagenet' --lr 0.1 --eval_funcs 'v1' 'v2'
