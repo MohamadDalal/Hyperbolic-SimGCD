@@ -101,8 +101,8 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
                             step_log_dict["step/train/cliped_embed2_stddiv"] = output_log_stats[4+1*args.poincare][1]
                             step_log_dict["step/train/cliped_embed2_max"] = output_log_stats[4+1*args.poincare][2]
                             step_log_dict["step/train/cliped_embed2_min"] = output_log_stats[4+1*args.poincare][3]   
-                        step_log_dict["step/train/curvature"] = student[1].get_curvature()
-                        step_log_dict["step/train/proj_alpha"] = student[1].get_proj_alpha()
+                        step_log_dict["step/train/curvature"] = student[1].get_curvature().item()
+                        step_log_dict["step/train/proj_alpha"] = student[1].get_proj_alpha().item()
                         step_log_dict["step/train/hyp_lorentz_mean"] = output_log_stats[1][0]
                         step_log_dict["step/train/hyp_lorentz_stddiv"] = output_log_stats[1][1]
                         step_log_dict["step/train/hyp_lorentz_max"] = output_log_stats[1][2]
@@ -315,10 +315,10 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, opt
             epoch_log_dict["epoch/train/angle_sup_con_loss"] = angle_sup_con_loss_record.avg
 
         if args.hyperbolic:
-            print(f"Current curvature: {student[1].get_curvature()}")
-            print(f"Current projection weight: {student[1].get_proj_alpha()}")
-            epoch_log_dict["epoch/train/curvature"] = student[1].get_curvature()
-            epoch_log_dict["epoch/train/proj_alpha"] = student[1].get_proj_alpha()
+            print(f"Current curvature: {student[1].get_curvature().item()}")
+            print(f"Current projection weight: {student[1].get_proj_alpha().item()}")
+            epoch_log_dict["epoch/train/curvature"] = student[1].get_curvature().item()
+            epoch_log_dict["epoch/train/proj_alpha"] = student[1].get_proj_alpha().item()
 
         if loss.isnan():
             break

@@ -406,13 +406,13 @@ class Hyperbolic_DINOHead(nn.Module):
         """
         Returns the curvature parameter.
         """
-        return self.curv.exp().item()
+        return self.curv.exp()
     
     def get_proj_alpha(self):
         """
         Returns the projection weight parameter.
         """
-        return self.proj_alpha.exp().item()
+        return self.proj_alpha.exp()
 
 
 class ContrastiveLearningViewGenerator(object):
@@ -520,7 +520,10 @@ class SupConLoss(torch.nn.Module):
             # compute logits. DONE: Make sure that the direction of the values is correct after stabilizing
             if self.hyperbolic:
                 # Result of this: Highest distance will be lowest value. Lowest distance will be 0
-                minus_distance = - L.pairwise_dist(anchor_feature, contrast_feature, curv=curv, eps=1e-6) / self.temperature
+                if self.poincare:
+                    minus_distance = - P.pairwise_dist(anchor_feature, contrast_feature, curv=-curv, eps=1e-6) / self.temperature
+                else:
+                    minus_distance = - L.pairwise_dist(anchor_feature, contrast_feature, curv=curv, eps=1e-6) / self.temperature
                 M = minus_distance
 
                 # for numerical stability, as soft max is translation invariant
