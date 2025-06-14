@@ -60,7 +60,7 @@ srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${containe
             --poincare \
             --euclidean_clipping 2.3 \
             --use_dinov2 \
-            --checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/Aircraft-Hyperbolic-Train-Poincare/checkpoints/model_best_loss.pt'
+            --checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/Aircraft-Hyperbolic-Train-Poincare/checkpoints/model_best.pt'
 #> ${SAVE_DIR}logfile_${EXP_NUM}.out
 
 #-m methods.contrastive_training.contrastive_training --dataset_name 'cub' --batch_size 128 --grad_from_block 11 --epochs 200 --base_model vit_dino --num_workers 16 --use_ssb_splits 'True' --sup_con_weight 0.35 --weight_decay 5e-5 --contrast_unlabel_only 'False' --exp_id test_exp --transform 'imagenet' --lr 0.1 --eval_funcs 'v1' 'v2'

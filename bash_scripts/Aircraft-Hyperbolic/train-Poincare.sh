@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-gpu=8
 #SBATCH --mem=16G
-# #SBATCH --nodelist=ailab-l4-07
+#SBATCH --nodelist=ailab-l4-08
 #SBATCH --exclude=ailab-l4-07
 
 #####################################################################################
