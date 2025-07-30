@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import AdamW, SGD, lr_scheduler
-from geoopt.optim import RiemannianSGD, RiemannianAdamas as GR_SGD, GR_Adam
+from geoopt.optim import RiemannianSGD as GR_SGD, RiemannianAdam as GR_Adam
 from optim import RiemannianSGD, RiemannianAdam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -16,7 +16,7 @@ from data.get_datasets import get_datasets, get_class_splits
 from util.general_utils import AverageMeter, init_experiment
 from util.cluster_and_log_utils import log_accs_from_preds
 from config import exp_root
-from model import DINOHead, Hyperbolic_DINOHead, info_nce_logits, SupConLoss, DistillLoss, ContrastiveLearningViewGenerator, get_params_groups
+from old_model import DINOHead, Hyperbolic_DINOHead, info_nce_logits, SupConLoss, DistillLoss, ContrastiveLearningViewGenerator, get_params_groups
 
 import wandb
 
@@ -31,6 +31,13 @@ class MultipleOptimizer(object):
     def step(self):
         for op in self.optimizers:
             op.step()
+    
+    def state_dict(self):
+        return [op.state_dict() for op in self.optimizers]
+    
+    def load_state_dict(self, state_dict):
+        for op, sd in zip(self.optimizers, state_dict):
+            op.load_state_dict(sd)
 
 def train(student, train_loader, test_loader, unlabelled_train_loader, args, optimizer, scheduler,
           best_test_acc = 0, start_epoch = 0, best_loss = 1e10):
@@ -585,7 +592,8 @@ if __name__ == "__main__":
                                                                alpha_init=args.proj_alpha,
                                                                learn_alpha=not args.freeze_proj_alpha.lower() == "full",
                                                                poincare=args.poincare, euclidean_clip_value=args.euclidean_clipping,
-                                                               original_poincare_layer=args.original_poincare_layer)
+                                                               original_poincare_layer=args.original_poincare_layer,
+                                                               simple_lorentz_layer=args.simple_lorentz_layer)
     else:
         projector = DINOHead(in_dim=args.feat_dim, out_dim=args.mlp_out_dim, nlayers=args.num_mlp_layers)
     model = nn.Sequential(backbone, projector).to(device)
@@ -603,7 +611,7 @@ if __name__ == "__main__":
 
         params_groups2 = get_params_groups(model, ["1.last_layer"], ignore_keywords = False)
         if args.use_adam2:
-            optimizer2 = GR_Adam(params_groups2, lr=args.lr2, weight_decay=args.weight_decay) if args.geoopt_optimizers else RiemannianAdam(params_groups2, lr=args.lr, weight_decay=args.weight_decay)
+            optimizer2 = GR_Adam(params_groups2, lr=args.lr2, weight_decay=args.weight_decay) if args.geoopt_optimizers else RiemannianAdam(params_groups2, stabilize=None, lr=args.lr, weight_decay=args.weight_decay)
         else:
             optimizer2 = GR_SGD(params_groups2, lr=args.lr2, momentum=args.momentum, weight_decay=args.weight_decay) if args.geoopt_optimizers else RiemannianSGD(params_groups2, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
@@ -612,7 +620,7 @@ if __name__ == "__main__":
             T_max=args.epochs,
             eta_min=args.lr * 1e-3,
         )
-        optimizer = MultipleOptimizer([optimizer1, optimizer2])
+        optimizer = MultipleOptimizer(optimizer1, optimizer2)
     else:
         params_groups = get_params_groups(model)
         if args.use_adam:

@@ -1,7 +1,6 @@
 import torch.optim.optimizer
 from geoopt import ManifoldParameter, ManifoldTensor
 from optim.mixin import OptimMixin
-from geoopt.utils import copy_or_set_
 
 __all__ = ["RiemannianSGD"]
 

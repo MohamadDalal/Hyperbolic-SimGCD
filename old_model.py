@@ -281,7 +281,8 @@ class LorentzLinearSimple(nn.Module):
 class Hyperbolic_DINOHead(nn.Module):
     def __init__(self, in_dim, out_dim, use_bn=False, norm_last_layer=True, nlayers=3, hidden_dim=2048, bottleneck_dim=256,
                  curv_init: float = 1.0, alpha_init: float = 1.0, learn_curv: bool = True, learn_alpha: bool = True,
-                 poincare: bool = False, euclidean_clip_value = None, original_poincare_layer: bool = False):
+                 poincare: bool = False, euclidean_clip_value = None, original_poincare_layer: bool = False,
+                 simple_lorentz_layer: bool = True):
         super().__init__()
         # Initialize curvature parameter. Hyperboloid curvature will be `-curv`.
         # Curvature is learned in log space
@@ -406,13 +407,13 @@ class Hyperbolic_DINOHead(nn.Module):
         """
         Returns the curvature parameter.
         """
-        return self.curv.exp().item()
+        return self.curv.exp()
     
     def get_proj_alpha(self):
         """
         Returns the projection weight parameter.
         """
-        return self.proj_alpha.exp().item()
+        return self.proj_alpha.exp()
 
 
 class ContrastiveLearningViewGenerator(object):
@@ -643,10 +644,19 @@ def info_nce_logits(features, args, curv=1.0, temperature=1.0, device='cuda', us
     return logits, labels
 
 
-def get_params_groups(model):
+def get_params_groups(model, keywords = [], ignore_keywords = True):
     regularized = []
     not_regularized = []
     for name, param in model.named_parameters():
+        #print(name, param.shape, param.requires_grad)
+        if ignore_keywords:
+            if any(keyword in name for keyword in keywords):
+                #print(f"Skipping {name} as it contains one of the ignored keywords: {keywords}")
+                continue
+        else:
+            if not any(keyword in name for keyword in keywords):
+                #print(f"Skipping {name} as it does not contain any of the keywords: {keywords}")
+                continue
         if not param.requires_grad:
             continue
         # we do not regularize biases nor Norm parameters

@@ -74,5 +74,7 @@ srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${containe
             --max_grad_norm 1.0 \
             --avg_grad_norm 0.25 \
             --use_dinov2 \
-            --checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/SCars-Hyperbolic-Train-Poincare/checkpoints/model.pt'
+            --seperate_optimizers \
+            --use_adam2 \
+            #--checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/SCars-Hyperbolic-Train-Poincare/checkpoints/model.pt'
 #> ${SAVE_DIR}logfile_${EXP_NUM}.out

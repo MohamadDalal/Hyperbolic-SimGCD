@@ -194,7 +194,7 @@ class LorentzLinearSimple(nn.Module):
         self.dropout = dropout
         self.use_bias = False
         self.bias = nn.Parameter(torch.Tensor(out_features))
-        self.weight = self.weight_v = nn.Parameter(torch.Tensor(out_features, in_features+1))
+        self.weight = self.weight_v = nn.Parameter(torch.Tensor(out_features, in_features))
         self.weight_g = nn.Parameter(self.weight.norm(dim=0))
         self.reset_parameters()
 
@@ -202,7 +202,7 @@ class LorentzLinearSimple(nn.Module):
         torch.nn.init.xavier_uniform_(self.weight, gain=math.sqrt(2))
         torch.nn.init.constant_(self.bias, 0)
 
-    def forward(self, x, curv):
+    def forward(self, x):
         drop_weight = F.dropout(self.weight, self.dropout, training=self.training)
         #x_time = torch.sqrt(1 / curv + torch.sum(x**2, dim=-1, keepdim=True))
         #x_full = torch.cat([x_time, x], dim=-1)
@@ -264,7 +264,8 @@ class LorentzLinear(nn.Module):
 class Hyperbolic_DINOHead(nn.Module):
     def __init__(self, in_dim, out_dim, use_bn=False, norm_last_layer=True, nlayers=3, hidden_dim=2048, bottleneck_dim=256,
                  curv_init: float = 1.0, alpha_init: float = 1.0, learn_curv: bool = True, learn_alpha: bool = True,
-                 poincare: bool = False, euclidean_clip_value = None, original_poincare_layer: bool = False):
+                 poincare: bool = False, euclidean_clip_value = None, original_poincare_layer: bool = False,
+                 simple_lorentz_layer: bool = False):
         super().__init__()
         # Initialize curvature parameter. Hyperboloid curvature will be `-curv`.
         # Curvature is learned in log space
@@ -286,6 +287,7 @@ class Hyperbolic_DINOHead(nn.Module):
         self.poincare = poincare
         self.manifold = geoopt.manifolds.PoincareBall(curv_init, learn_curv) if poincare else geoopt.manifolds.Lorentz(curv_init, learn_curv)
         self.original_poincare_layer = original_poincare_layer
+        self.simple_lorentz_layer = simple_lorentz_layer
         self.euclidean_clip_value = euclidean_clip_value
         
         nlayers = max(nlayers, 1)
@@ -315,7 +317,10 @@ class Hyperbolic_DINOHead(nn.Module):
             else:
                 self.last_layer = PoincareLinear(self.manifold, bottleneck_dim, out_dim, out_split=1, bias=False)
         else:
-            self.last_layer = LorentzLinearSimple(self.manifold, bottleneck_dim, out_dim, dropout=0.0, bias=False)
+            if self.simple_lorentz_layer:
+                self.last_layer = LorentzLinearSimple(self.manifold, bottleneck_dim, out_dim, dropout=0.0, bias=False)
+            else:
+                self.last_layer = LorentzLinear(self.manifold, bottleneck_dim, out_dim, bias=False, dropout=0.0)
         # Weights are initialized to a gaussian distribution in Poincare Linear, so only fill with 1 if using norm_last_layer
         # if norm_last_layer:
         #     self.last_layer.weight_g.data.fill_(1)
@@ -340,7 +345,7 @@ class Hyperbolic_DINOHead(nn.Module):
         # Once `exp(scale) = 1`, they can simply be removed during inference.
         self.proj_alpha.data = torch.clamp(self.proj_alpha.data, max=0.0, min=math.log(1e-1))
         # Clamp curvatue in case it becomes too high or too low
-        self.curv.data = torch.clamp(self.curv.data, **self._curv_minmax)
+        #self.curv.data = torch.clamp(self.curv.data, **self._curv_minmax)
         x_norm = torch.norm(x, dim=1)
         log_stats.append((x_norm.mean(), x_norm.std(), x_norm.max(), x_norm.min()))
         if self.euclidean_clip_value is not None:
@@ -371,6 +376,8 @@ class Hyperbolic_DINOHead(nn.Module):
                 #exit()
             else:
                 x_proj = self.manifold.expmap0(x, project=False)
+                print(x.shape)
+                print(x_proj.shape)
         x_norm = torch.norm(x_proj, dim=1)
         log_stats.append((x_norm.mean(), x_norm.std(), x_norm.max(), x_norm.min()))
         logits = self.last_layer(x_proj)

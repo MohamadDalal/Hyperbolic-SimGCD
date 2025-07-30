@@ -45,7 +45,7 @@ srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${containe
             --dataset_name 'aircraft' \
             --batch_size 128 \
             --grad_from_block 11 \
-            --epochs 200 \
+            --epochs 5 \
             --epochs_warmup 20 \
             --num_workers 16 \
             --use_ssb_splits \
@@ -57,7 +57,7 @@ srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${containe
             --eval_funcs 'v2' \
             --warmup_teacher_temp 0.07 \
             --teacher_temp 0.04 \
-            --warmup_teacher_temp_epochs 30 \
+            --warmup_teacher_temp_epochs 1 \
             --memax_weight 1 \
             --exp_id 'Aircraft-Hyperbolic-Train' \
             --wandb_mode 'online' \
@@ -73,7 +73,9 @@ srun --output="${outfile}" --error="${outfile}" singularity exec --nv ${containe
             --max_grad_norm 1.0 \
             --avg_grad_norm 0.25 \
             --use_dinov2 \
-            --checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/Aircraft-Hyperbolic-Train/checkpoints/model.pt'
+            --seperate_optimizers \
+            --use_adam2 \
+            #--checkpoint_path '/ceph/home/student.aau.dk/mdalal20/P10-project/Hyperbolic-SimGCD/dev_outputs/simgcd/log/Aircraft-Hyperbolic-Train/checkpoints/model.pt'
 #> ${SAVE_DIR}logfile_${EXP_NUM}.out
 
 #-m methods.contrastive_training.contrastive_training --dataset_name 'cub' --batch_size 128 --grad_from_block 11 --epochs 200 --base_model vit_dino --num_workers 16 --use_ssb_splits 'True' --sup_con_weight 0.35 --weight_decay 5e-5 --contrast_unlabel_only 'False' --exp_id test_exp --transform 'imagenet' --lr 0.1 --eval_funcs 'v1' 'v2'
